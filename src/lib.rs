@@ -11,11 +11,12 @@
 //! - `version`     — Version struct, parse, ordering     [DONE]
 //! - `clause`      — Clause tree, Range, policies        [DONE]
 //! - `simple_spec` — SimpleSpec parser                   [DONE]
-//! - `npm_spec`    — NpmSpec parser                      [PLANNED]
+//! - `npm_spec`    — NpmSpec parser                      [DONE]
 
 pub mod clause;
 pub mod error;
 pub mod identifiers;
+pub mod npm_spec;
 pub mod simple_spec;
 pub mod version;
 
@@ -23,5 +24,6 @@ pub mod version;
 pub use clause::{BuildPolicy, Clause, Operator, PrereleasePolicy, Range};
 pub use error::SemverError;
 pub use identifiers::{BuildIdent, PreReleaseIdent};
+pub use npm_spec::NpmSpec;
 pub use simple_spec::SimpleSpec;
 pub use version::{compare, validate, Version};
