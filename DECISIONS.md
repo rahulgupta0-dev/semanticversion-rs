@@ -65,9 +65,10 @@ Each entry: **Python behavior → Rust choice → Rationale → Tradeoff → Tes
 ## D05 [DONE] — SimpleSpec Grammar → Rust parser design
 
 **Python:** Splits on `,`, then `NAIVE_SPEC` regex matches each block.  
-**Rust:** Same approach: split on `,`, match each block with the equivalent regex, then dispatch to `parse_block()`. The Rust `regex` crate handles the named capture groups.  
+**Rust:** Same approach: split on `,`, match each block with the equivalent regex, then dispatch to `parse_block()`. The Rust `regex` crate handles the named capture groups. Implemented in `src/simple_spec.rs`.  
 **Rationale:** Direct translation preserves behavioral identity. Exotic combinator approaches risk divergence.  
 **Tradeoff:** The regex string must be carefully translated and tested.  
+**Test impact:** `test_match.py` and `test_base.py::SpecTestCase` — must match exactly. All 25 ground-truth tests pass in `tests/port_simple_spec.rs`.  
 **Test impact:** `test_match.py` and `test_base.py::SpecTestCase` — must match exactly.
 
 ---

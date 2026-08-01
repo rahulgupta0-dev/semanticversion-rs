@@ -186,6 +186,28 @@ impl fmt::Display for Range {
 }
 
 // ---------------------------------------------------------------------------
+// Clause Display impl
+// ---------------------------------------------------------------------------
+
+impl fmt::Display for Clause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Clause::Always => write!(f, "*"),
+            Clause::Never => write!(f, "NEVER"),
+            Clause::Range(r) => write!(f, "{}", r),
+            Clause::AllOf(clauses) => {
+                let parts: Vec<String> = clauses.iter().map(|c| c.to_string()).collect();
+                write!(f, "{}", parts.join(","))
+            }
+            Clause::AnyOf(clauses) => {
+                let parts: Vec<String> = clauses.iter().map(|c| c.to_string()).collect();
+                write!(f, "{}", parts.join("||"))
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Clause AST enum
 // ---------------------------------------------------------------------------
 
