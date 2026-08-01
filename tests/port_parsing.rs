@@ -251,14 +251,15 @@ fn precedence_ordering_chain() {
         for j in 0..parsed.len() {
             match i.cmp(&j) {
                 std::cmp::Ordering::Less => {
-                    assert!(parsed[i] < parsed[j], "{} should be < {}", ordered[i], ordered[j]);
+                    assert!(parsed[i].precedence_lt(&parsed[j]),
+                        "{} should be < {}", ordered[i], ordered[j]);
                 }
                 std::cmp::Ordering::Equal => {
-                    // Same version compared to itself via cmp
                     assert!(parsed[i].cmp_precedence_key() == parsed[j].cmp_precedence_key());
                 }
                 std::cmp::Ordering::Greater => {
-                    assert!(parsed[i] > parsed[j], "{} should be > {}", ordered[i], ordered[j]);
+                    assert!(parsed[i].precedence_gt(&parsed[j]),
+                        "{} should be > {}", ordered[i], ordered[j]);
                 }
             }
         }
@@ -272,6 +273,11 @@ fn precedence_ordering_chain() {
 
 #[test]
 fn build_only_diff_is_unordered() {
+    // Ground truth (2026-08-01):
+    //   1.0.0+a == 1.0.0+b  -> False (build IS in __eq__)
+    //   1.0.0+a <  1.0.0+b  -> False (same precedence key)
+    //   1.0.0+a <= 1.0.0+b  -> True  (same precedence key, <= is True)
+    //   1.0.0+a >  1.0.0+b  -> False
     let groups: &[&[&str]] = &[
         &["1.0.0-rc.1", "1.0.0-rc.1+build.1"],
         &["1.0.0", "1.0.0+0.3.7"],
@@ -286,11 +292,11 @@ fn build_only_diff_is_unordered() {
                     assert_eq!(vi, vj);
                 } else {
                     assert_ne!(vi, vj, "{} == {}", group[i], group[j]);
-                    // But ordering-wise they are equal (same precedence key)
-                    assert!(!(vi < vj), "{} should not be < {}", group[i], group[j]);
-                    assert!(vi <= vj, "{} should be <= {}", group[i], group[j]);
-                    assert!(!(vj > vi), "{} should not be > {}", group[j], group[i]);
-                    assert!(vj >= vi, "{} should be >= {}", group[j], group[i]);
+                    // Same precedence — neither lt nor gt
+                    assert!(!vi.precedence_lt(&vj), "{} should not be < {}", group[i], group[j]);
+                    assert!(vi.precedence_le(&vj),  "{} should be <= {}", group[i], group[j]);
+                    assert!(!vj.precedence_gt(&vi), "{} should not be > {}", group[j], group[i]);
+                    assert!(vj.precedence_ge(&vi),  "{} should be >= {}", group[j], group[i]);
                 }
             }
         }

@@ -7,9 +7,29 @@
 //! Key design decisions (see DECISIONS.md):
 //! - D01: major/minor/patch stored as `u64` (Python uses arbitrary-precision int).
 //! - D02: `Option<u64>` for minor/patch in partial versions (Python uses `None`).
+//! - D06: NO `Ord`/`PartialOrd` trait on `Version` — see below.
 //! - D09: `coerce()` ported directly; regex + string logic from base.py:225–302.
-//! - D10: Error messages include `{:?}` (Rust debug repr) for strings.
+//! - D10: Error messages use single-quoted strings matching Python's ValueError format.
 //! - D11: `PreReleaseIdent::Max` sentinel for no-prerelease ordering.
+//!
+//! ## CRITICAL: Why we do NOT impl Ord/PartialOrd on Version
+//!
+//! Python's `__eq__` includes build metadata (two versions with different builds are NOT equal).
+//! Python's `__lt__`/`__gt__` use `_cmp_precedence_key` which EXCLUDES build metadata.
+//! This means: `1.0.0+a != 1.0.0+b` but `NOT (1.0.0+a < 1.0.0+b)` and `NOT (1.0.0+a > 1.0.0+b)`.
+//!
+//! Rust's `Ord` trait contract requires: `a == b ↔ a.cmp(b) == Equal`.
+//! Our semantics VIOLATE this: two versions can be `ne` but have `Equal` precedence.
+//! Therefore: **we implement `Ord`/`PartialOrd` only on the key types**, not on `Version` itself.
+//! Version comparison is done via `.cmp_precedence_key()` directly (like Python's `__lt__`).
+//!
+//! Ground truth (confirmed 2026-08-01):
+//!   `1.0.0+a == 1.0.0+b`  → False   (build included in __eq__)
+//!   `1.0.0+a <  1.0.0+b`  → False   (same precedence key)
+//!   `1.0.0+a <= 1.0.0+b`  → True    (same precedence key, <= is True)
+//!   `1.0.0+a >  1.0.0+b`  → False   (same precedence key)
+//!   `__lt__` returns bool `False`, never `NotImplemented` for same-type comparison.
+//!   `hash(1.0.0+a) != hash(1.0.0+b)` (build IS included in hash).
 //!
 //! ## Regex definitions (base.py:81–82)
 //!
@@ -28,10 +48,7 @@ use std::hash::{Hash, Hasher};
 use regex::Regex;
 
 use crate::error::SemverError;
-use crate::identifiers::{
-    BuildIdent, PreReleaseIdent,
-    parse_build_identifiers, parse_prerelease_identifiers,
-};
+use crate::identifiers::{BuildIdent, PreReleaseIdent};
 
 // ---------------------------------------------------------------------------
 // Regex: compiled once via std::sync::OnceLock (stable since 1.70)
@@ -42,7 +59,7 @@ fn version_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9a-zA-Z.-]+))?(?:\+([0-9a-zA-Z.-]+))?$")
-            .expect("version regex is valid")
+            .expect("version regex is valid — only panics if regex source is wrong, not user input")
     })
 }
 
@@ -53,7 +70,7 @@ fn partial_version_re() -> &'static Regex {
         Regex::new(
             r"^(\d+)(?:\.(\d+)(?:\.(\d+))?)?(?:-([0-9a-zA-Z.-]*))?(?:\+([0-9a-zA-Z.-]*))?$",
         )
-        .expect("partial version regex is valid")
+        .expect("partial version regex is valid — only panics if regex source is wrong, not user input")
     })
 }
 
@@ -61,22 +78,23 @@ fn coerce_base_re() -> &'static Regex {
     use std::sync::OnceLock;
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"^\d+(?:\.\d+(?:\.\d+)?)?").expect("coerce base regex is valid")
+        Regex::new(r"^\d+(?:\.\d+(?:\.\d+)?)?")
+            .expect("coerce base regex is valid — only panics if regex source is wrong, not user input")
     })
 }
 
 // ---------------------------------------------------------------------------
-// Precedence key types (used for Ord, returned from .precedence_key)
+// Precedence key types
 // ---------------------------------------------------------------------------
 
 /// The key used for SemVer *precedence* comparison (ignores build metadata).
 /// Mirrors Python's `_cmp_precedence_key` (base.py:123).
+/// `[Max]` when there is no prerelease (so release > any prerelease).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PrecedenceKey {
     pub major: u64,
     pub minor: u64,
     pub patch: u64,
-    /// `[Max]` when there is no prerelease (so release > any prerelease).
     pub prerelease: Vec<PreReleaseIdent>,
 }
 
@@ -97,19 +115,22 @@ pub struct SortKey {
 
 /// A parsed Semantic Version, faithful to `base.py::Version`.
 ///
-/// For standard (non-partial) versions: minor and patch are always present.
-/// For partial versions: minor and/or patch may be `None`.
+/// ### Equality vs ordering
 ///
-/// `prerelease` and `build` are `Vec` of dot-split components.
-/// For standard versions they are always `Some` (possibly empty).
-/// For partial versions they may be `None` (not specified) or `Some([])` (trailing `-` or `+`).
+/// `PartialEq`/`Eq` includes build metadata — two versions with different builds are **not equal**.
+/// `cmp_precedence_key()` excludes build metadata — versions differing only in build have the
+/// **same precedence** (neither is less-than nor greater-than the other).
+///
+/// We do **not** implement `Ord`/`PartialOrd` on `Version` directly because that would
+/// violate Rust's contract (`a == b ↔ a.cmp(b) == Equal`).
+/// Use `v.cmp_precedence_key()` to compare versions by SemVer precedence.
 #[derive(Debug, Clone)]
 pub struct Version {
     pub major: u64,
     pub minor: Option<u64>,
     pub patch: Option<u64>,
     /// `None` = not specified (partial only).
-    /// `Some([])` = trailing `-` with no identifiers (partial only, or standard with no prerelease).
+    /// `Some([])` = no prerelease identifiers.
     pub prerelease: Option<Vec<PreReleaseIdent>>,
     /// `None` = not specified (partial only).
     /// `Some([])` = no build metadata.
@@ -139,58 +160,55 @@ impl Version {
 
     fn parse_inner(s: &str, partial: bool) -> Result<Self, SemverError> {
         if s.is_empty() {
-            return Err(SemverError::InvalidVersion(s.to_owned()));
+            return Err(SemverError::empty_version(s));
         }
 
         let re = if partial { partial_version_re() } else { version_re() };
-        let caps = re.captures(s).ok_or_else(|| SemverError::InvalidVersion(s.to_owned()))?;
+        let caps = re.captures(s).ok_or_else(|| SemverError::invalid_version(s))?;
 
-        // Group 1: major (always present)
         let major_s = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        // Group 2: minor (optional in partial)
         let minor_s = caps.get(2).map(|m| m.as_str());
-        // Group 3: patch (optional in partial)
         let patch_s = caps.get(3).map(|m| m.as_str());
-        // Group 4: prerelease (optional; None = absent, Some("") = trailing dash)
         let prerel_s = caps.get(4).map(|m| m.as_str());
-        // Group 5: build (optional; None = absent, Some("") = trailing plus)
-        let build_s = caps.get(5).map(|m| m.as_str());
+        let build_s  = caps.get(5).map(|m| m.as_str());
 
-        // Leading-zero check (base.py:329–334)
+        // Leading-zero checks (base.py:329–334) — granular error messages
         if has_leading_zero(major_s) {
-            return Err(SemverError::InvalidVersion(s.to_owned()));
+            return Err(SemverError::leading_zero_major(s));
         }
         if minor_s.map(has_leading_zero).unwrap_or(false) {
-            return Err(SemverError::InvalidVersion(s.to_owned()));
+            return Err(SemverError::leading_zero_minor(s));
         }
         if patch_s.map(has_leading_zero).unwrap_or(false) {
-            return Err(SemverError::InvalidVersion(s.to_owned()));
+            return Err(SemverError::leading_zero_patch(s));
         }
 
-        let major = major_s.parse::<u64>().map_err(|_| SemverError::InvalidVersion(s.to_owned()))?;
-        let minor = minor_s.map(|v| v.parse::<u64>().map_err(|_| SemverError::InvalidVersion(s.to_owned()))).transpose()?;
-        let patch = patch_s.map(|v| v.parse::<u64>().map_err(|_| SemverError::InvalidVersion(s.to_owned()))).transpose()?;
+        let major = major_s.parse::<u64>().map_err(|_| SemverError::invalid_version(s))?;
+        let minor = minor_s
+            .map(|v| v.parse::<u64>().map_err(|_| SemverError::invalid_version(s)))
+            .transpose()?;
+        let patch = patch_s
+            .map(|v| v.parse::<u64>().map_err(|_| SemverError::invalid_version(s)))
+            .transpose()?;
 
         // Prerelease parsing (base.py:340–350)
         let prerelease = match prerel_s {
-            None if partial && build_s.is_none() => None,  // No prerelease, no build, partial → None
-            None => Some(vec![]),                            // No prerelease, standard → empty
-            Some("") => Some(vec![]),                       // Trailing `-` → empty tuple
+            None if partial && build_s.is_none() => None,
+            None => Some(vec![]),
+            Some("") => Some(vec![]),
             Some(pr) => {
-                let ids = parse_prerelease_identifiers(pr)
-                    .map_err(|_| SemverError::InvalidVersion(s.to_owned()))?;
+                let ids = parse_prerelease_identifiers_errmapped(pr, s)?;
                 Some(ids)
             }
         };
 
         // Build parsing (base.py:352–361)
         let build = match build_s {
-            None if partial => None,   // No build, partial → None
-            None => Some(vec![]),      // No build, standard → empty
-            Some("") => Some(vec![]),  // Trailing `+` → empty
+            None if partial => None,
+            None => Some(vec![]),
+            Some("") => Some(vec![]),
             Some(b) => {
-                let ids = parse_build_identifiers(b)
-                    .map_err(|_| SemverError::InvalidVersion(s.to_owned()))?;
+                let ids = parse_build_identifiers_errmapped(b, s)?;
                 Some(ids)
             }
         };
@@ -203,36 +221,25 @@ impl Version {
     // -----------------------------------------------------------------------
 
     /// Construct from explicit components (mirrors `Version(major=M, minor=m, ...)`).
-    ///
-    /// For non-partial: prerelease and build default to `[]` if not provided.
     pub fn from_parts(
         major: u64,
         minor: u64,
         patch: u64,
         prerelease: Option<Vec<PreReleaseIdent>>,
         build: Option<Vec<BuildIdent>>,
-    ) -> Result<Self, SemverError> {
-        // Validate prerelease identifiers for leading zeros
-        if let Some(ref prs) = prerelease {
-            for id in prs {
-                if let PreReleaseIdent::Numeric(n) = id {
-                    // n is already parsed; no leading-zero risk
-                    let _ = n;
-                }
-            }
-        }
-        Ok(Self {
+    ) -> Self {
+        Self {
             major,
             minor: Some(minor),
             patch: Some(patch),
             prerelease: Some(prerelease.unwrap_or_default()),
             build: Some(build.unwrap_or_default()),
             partial: false,
-        })
+        }
     }
 
     // -----------------------------------------------------------------------
-    // Validate (base.py module-level `validate` function)
+    // Validate
     // -----------------------------------------------------------------------
 
     /// Returns `true` if `s` is a valid SemVer version string.
@@ -244,29 +251,21 @@ impl Version {
     // Coerce (base.py:225–302)
     // -----------------------------------------------------------------------
 
-    /// Coerce an arbitrary version string into a valid SemVer string.
-    ///
-    /// Rules:
-    /// - Extract leading `N`, `N.M`, or `N.M.P` component.
-    /// - Fill missing minor/patch with `.0` (unless `partial=true`).
-    /// - Strip leading zeros from numeric components.
-    /// - Any trailing content after the numeric part is cleaned and appended as
-    ///   prerelease and/or build metadata.
+    /// Coerce an arbitrary version string into a valid SemVer.
     pub fn coerce(s: &str, partial: bool) -> Result<Self, SemverError> {
         let re = coerce_base_re();
-        let m = re.find(s).ok_or_else(|| SemverError::InvalidCoerce(s.to_owned()))?;
+        let m = re.find(s).ok_or_else(|| SemverError::invalid_coerce(s))?;
         let end = m.end();
 
         let mut version = s[..end].to_owned();
 
         if !partial {
-            // Fill missing minor/patch
             while version.matches('.').count() < 2 {
                 version.push_str(".0");
             }
         }
 
-        // Strip leading zeros from each component (base.py:262–266)
+        // Strip leading zeros (base.py:262–266)
         version = version
             .split('.')
             .map(|part| {
@@ -280,9 +279,7 @@ impl Version {
             return Self::parse_inner(&version, partial);
         }
 
-        // Process trailing rest (base.py:271–300)
         let rest_raw = &s[end..];
-        // Replace non-semver chars with `-` (base.py:274)
         let rest: String = rest_raw.chars().map(|c| {
             if c.is_ascii_alphanumeric() || c == '+' || c == '.' || c == '-' { c } else { '-' }
         }).collect();
@@ -304,7 +301,6 @@ impl Version {
             (rest.clone(), "".to_owned())
         };
 
-        // base.py:295: build = build.replace('+', '.')
         let build_str = build_str.replace('+', ".");
 
         if !prerel.is_empty() {
@@ -322,16 +318,13 @@ impl Version {
     // -----------------------------------------------------------------------
 
     /// Return the next major version (strips prerelease/build).
-    ///
-    /// If this version has a prerelease and minor == patch == 0, returns the same
-    /// M.0.0 without the prerelease (promotes the prerelease to release).
     pub fn next_major(&self) -> Self {
         let (minor, patch) = (self.minor.unwrap_or(0), self.patch.unwrap_or(0));
         let prerelease = self.prerelease.as_deref().unwrap_or(&[]);
         if !prerelease.is_empty() && minor == 0 && patch == 0 {
-            Self::from_parts(self.major, 0, 0, None, None).unwrap()
+            Self::from_parts(self.major, 0, 0, None, None)
         } else {
-            Self::from_parts(self.major + 1, 0, 0, None, None).unwrap()
+            Self::from_parts(self.major + 1, 0, 0, None, None)
         }
     }
 
@@ -341,9 +334,9 @@ impl Version {
         let prerelease = self.prerelease.as_deref().unwrap_or(&[]);
         let minor = self.minor.unwrap_or(0);
         if !prerelease.is_empty() && patch == 0 {
-            Self::from_parts(self.major, minor, 0, None, None).unwrap()
+            Self::from_parts(self.major, minor, 0, None, None)
         } else {
-            Self::from_parts(self.major, minor + 1, 0, None, None).unwrap()
+            Self::from_parts(self.major, minor + 1, 0, None, None)
         }
     }
 
@@ -353,15 +346,13 @@ impl Version {
         let patch = self.patch.unwrap_or(0);
         let prerelease = self.prerelease.as_deref().unwrap_or(&[]);
         if !prerelease.is_empty() {
-            Self::from_parts(self.major, minor, patch, None, None).unwrap()
+            Self::from_parts(self.major, minor, patch, None, None)
         } else {
-            Self::from_parts(self.major, minor, patch + 1, None, None).unwrap()
+            Self::from_parts(self.major, minor, patch + 1, None, None)
         }
     }
 
     /// Return this version truncated to patch level (strips prerelease and build).
-    ///
-    /// Used by `NpmSpec` to compute the non-prerelease range boundary.
     pub fn truncate(&self) -> Self {
         Self::from_parts(
             self.major,
@@ -369,18 +360,17 @@ impl Version {
             self.patch.unwrap_or(0),
             None,
             None,
-        ).unwrap()
+        )
     }
 
     // -----------------------------------------------------------------------
     // Precedence keys (base.py:424–463)
     // -----------------------------------------------------------------------
 
-    /// Build the precedence key used for `PartialOrd`/`Ord` comparison.
+    /// Build the precedence key used for SemVer version comparison.
     ///
-    /// **Build metadata is excluded** (SemVer §11: build has no precedence).
-    /// When there is no prerelease, we use `[Max]` so that releases sort AFTER
-    /// pre-releases (base.py:436–438 — the `MaxIdentifier` sentinel).
+    /// **Build metadata is excluded** (SemVer §11).
+    /// When there is no prerelease, we use `[Max]` so releases sort AFTER pre-releases.
     pub fn cmp_precedence_key(&self) -> PrecedenceKey {
         let prerelease: Vec<PreReleaseIdent> = match &self.prerelease {
             Some(ids) if !ids.is_empty() => ids.clone(),
@@ -396,7 +386,7 @@ impl Version {
 
     /// Build the full sort key, including build metadata.
     ///
-    /// Used for stable sorting (`sorted(versions, key=lambda v: v.precedence_key)` in Python).
+    /// Use for `sorted(versions, key=lambda v: v.precedence_key)` style sorting.
     pub fn sort_precedence_key(&self) -> SortKey {
         let prerelease: Vec<PreReleaseIdent> = match &self.prerelease {
             Some(ids) if !ids.is_empty() => ids.clone(),
@@ -411,24 +401,46 @@ impl Version {
             build,
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Comparison helpers (mirrors Python's __lt__, __le__, __gt__, __ge__)
+    // -----------------------------------------------------------------------
+
+    /// Returns `true` if `self` has strictly lower SemVer precedence than `other`.
+    /// Excludes build metadata (mirrors `__lt__`).
+    pub fn precedence_lt(&self, other: &Self) -> bool {
+        self.cmp_precedence_key() < other.cmp_precedence_key()
+    }
+
+    /// Returns `true` if `self` has lower or equal SemVer precedence than `other`.
+    pub fn precedence_le(&self, other: &Self) -> bool {
+        self.cmp_precedence_key() <= other.cmp_precedence_key()
+    }
+
+    /// Returns `true` if `self` has strictly higher SemVer precedence than `other`.
+    pub fn precedence_gt(&self, other: &Self) -> bool {
+        self.cmp_precedence_key() > other.cmp_precedence_key()
+    }
+
+    /// Returns `true` if `self` has higher or equal SemVer precedence than `other`.
+    pub fn precedence_ge(&self, other: &Self) -> bool {
+        self.cmp_precedence_key() >= other.cmp_precedence_key()
+    }
 }
 
 // ---------------------------------------------------------------------------
 // PartialEq / Eq — includes build metadata (base.py:477–491)
 // ---------------------------------------------------------------------------
-//
-// DECISION D06: `PartialEq` includes build metadata (all 5 fields).
-// `PartialOrd`/`Ord` excludes build (cmp_precedence_key).
-// This means `v1 == v2` can be false while `v1.cmp(&v2) == Equal`.
-// We document this divergence from Rust's standard convention.
 
 impl PartialEq for Version {
     fn eq(&self, other: &Self) -> bool {
         self.major == other.major
             && self.minor == other.minor
             && self.patch == other.patch
-            && self.prerelease.as_deref().unwrap_or(&[]) == other.prerelease.as_deref().unwrap_or(&[])
-            && self.build.as_deref().unwrap_or(&[]) == other.build.as_deref().unwrap_or(&[])
+            && self.prerelease.as_deref().unwrap_or(&[])
+                == other.prerelease.as_deref().unwrap_or(&[])
+            && self.build.as_deref().unwrap_or(&[])
+                == other.build.as_deref().unwrap_or(&[])
     }
 }
 
@@ -436,6 +448,7 @@ impl Eq for Version {}
 
 // ---------------------------------------------------------------------------
 // Hash — mirrors base.py:419–422
+// Hash includes build metadata (confirmed ground-truth: hash(1.0.0+a) != hash(1.0.0+b))
 // ---------------------------------------------------------------------------
 
 impl Hash for Version {
@@ -443,13 +456,11 @@ impl Hash for Version {
         self.major.hash(state);
         self.minor.hash(state);
         self.patch.hash(state);
-        // Use empty slice when None (partial version with unspecified prerelease)
         self.prerelease.as_deref().unwrap_or(&[]).hash(state);
         self.build.as_deref().unwrap_or(&[]).hash(state);
     }
 }
 
-// PartialEq on PreReleaseIdent is needed for Hash consistency
 impl Hash for PreReleaseIdent {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -469,23 +480,7 @@ impl Hash for BuildIdent {
 }
 
 // ---------------------------------------------------------------------------
-// PartialOrd / Ord — uses cmp_precedence_key, excludes build
-// ---------------------------------------------------------------------------
-
-impl PartialOrd for Version {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Version {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.cmp_precedence_key().cmp(&other.cmp_precedence_key())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Display / Debug (base.py:400–417)
+// Display (base.py:400–410)
 // ---------------------------------------------------------------------------
 
 impl fmt::Display for Version {
@@ -498,27 +493,27 @@ impl fmt::Display for Version {
             write!(f, ".{}", patch)?;
         }
 
-        // Prerelease: show if non-empty, or if partial with empty prerelease and no build
         let prerelease = self.prerelease.as_deref().unwrap_or(&[]);
         if !prerelease.is_empty() {
             let s = prerelease.iter().map(|id| match id {
                 PreReleaseIdent::Numeric(n) => n.to_string(),
-                PreReleaseIdent::Alpha(s) => s.clone(),
-                PreReleaseIdent::Max => String::new(),
+                PreReleaseIdent::Alpha(s)   => s.clone(),
+                PreReleaseIdent::Max        => String::new(),
             }).collect::<Vec<_>>().join(".");
             write!(f, "-{}", s)?;
-        } else if self.partial && self.prerelease == Some(vec![]) && self.build.is_none() {
-            // Trailing `-` with no identifiers and no build: print `1.0.0-`
+        } else if self.partial
+            && self.prerelease == Some(vec![])
+            && self.build.is_none()
+        {
+            // Trailing `-` with no identifiers and no build: `1.0.0-`
             write!(f, "-")?;
         }
 
-        // Build
         let build = self.build.as_deref().unwrap_or(&[]);
         if !build.is_empty() {
             let s = build.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(".");
             write!(f, "+{}", s)?;
         } else if self.partial && self.build == Some(vec![]) {
-            // Trailing `+` with no identifiers
             write!(f, "+")?;
         }
 
@@ -530,8 +525,8 @@ impl fmt::Display for PreReleaseIdent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PreReleaseIdent::Numeric(n) => write!(f, "{}", n),
-            PreReleaseIdent::Alpha(s) => write!(f, "{}", s),
-            PreReleaseIdent::Max => write!(f, ""),
+            PreReleaseIdent::Alpha(s)   => write!(f, "{}", s),
+            PreReleaseIdent::Max        => Ok(()),
         }
     }
 }
@@ -541,39 +536,75 @@ impl fmt::Display for PreReleaseIdent {
 // ---------------------------------------------------------------------------
 
 /// Returns `true` if `s` is a non-zero all-digit string with a leading `0`.
-/// Mirrors Python's `_has_leading_zero` (base.py:10–14).
 fn has_leading_zero(s: &str) -> bool {
     s.len() > 1 && s.starts_with('0') && s.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// Parse prerelease identifiers, mapping errors to `SemverError` with the full version string.
+fn parse_prerelease_identifiers_errmapped(
+    pr: &str,
+    full_input: &str,
+) -> Result<Vec<PreReleaseIdent>, SemverError> {
+    use crate::identifiers::parse_prerelease_identifiers;
+    parse_prerelease_identifiers(pr).map_err(|e| {
+        // Reconstruct Python-style error messages
+        if e.contains("Empty identifier") {
+            // "Empty identifier in prerelease 'bad..id'" → "Invalid empty identifier '' in 'bad..id'"
+            SemverError::empty_identifier("", pr)
+        } else if e.contains("Leading zero") {
+            // Extract the ident from the error string
+            let ident = e.split_whitespace().last().unwrap_or(pr).trim_matches('\'').trim_matches('"');
+            SemverError::leading_zero_identifier(ident)
+        } else {
+            SemverError::invalid_version(full_input)
+        }
+    })
+}
+
+/// Parse build identifiers, mapping errors to `SemverError`.
+fn parse_build_identifiers_errmapped(
+    b: &str,
+    full_input: &str,
+) -> Result<Vec<BuildIdent>, SemverError> {
+    use crate::identifiers::parse_build_identifiers;
+    parse_build_identifiers(b).map_err(|_| SemverError::invalid_version(full_input))
+}
+
 // ---------------------------------------------------------------------------
-// Module-level functions (mirrors base.py::validate, compare)
+// Module-level functions
 // ---------------------------------------------------------------------------
 
 /// Returns `true` if `s` is a valid SemVer version string.
-/// Mirrors `base.validate(version_string)` (base.py).
 pub fn validate(s: &str) -> bool {
     Version::is_valid(s)
 }
 
 /// Compare two version strings by SemVer precedence.
 ///
-/// Returns `-1`, `0`, or `1` (like Python `cmp()`).
-/// Returns `NotImplemented` (as `None`) when the two versions differ only in build metadata
-/// and are therefore unordered.
+/// Returns `Some(-1)`, `Some(0)`, or `Some(1)`.
+/// Returns `None` for versions that cannot be compared (different types or parse error handled by caller).
+///
+/// **Ground truth (2026-08-01):** Python's `compare(v1, v2)` returns `NotImplemented` (the Python
+/// sentinel object) when the versions differ ONLY in build metadata — meaning same precedence key
+/// but `v1 != v2`. We return `None` for this case. For all other equal-precedence pairs (including
+/// `1.0.0` vs `1.0.0` where both build fields are `()`), we return `Some(0)`.
 ///
 /// Mirrors `base.compare(v1, v2)`.
 pub fn compare(v1: &str, v2: &str) -> Result<Option<i32>, SemverError> {
     let a = Version::parse(v1)?;
     let b = Version::parse(v2)?;
-    // If they are equal by precedence but not by full equality (build differs)
-    if a.cmp_precedence_key() == b.cmp_precedence_key() && a != b {
-        return Ok(None); // NotImplemented in Python
+
+    let key_cmp = a.cmp_precedence_key().cmp(&b.cmp_precedence_key());
+
+    if key_cmp == std::cmp::Ordering::Equal && a != b {
+        // Same precedence but different build — NotImplemented in Python
+        return Ok(None);
     }
+
     use std::cmp::Ordering::*;
-    Ok(Some(match a.cmp(&b) {
-        Less => -1,
-        Equal => 0,
-        Greater => 1,
+    Ok(Some(match key_cmp {
+        Less    => -1,
+        Equal   =>  0,
+        Greater =>  1,
     }))
 }
