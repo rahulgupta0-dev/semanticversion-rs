@@ -24,3 +24,10 @@ excluded_test_files = ["test_django.py"]
 excluded_rationale = "Django ORM fields out of scope per R6 (no Python runtime). Tests skip as 'Django not installed' — identical to baseline."
 passing_rust_tests = "TBD"
 parity_percent = "TBD"
+
+# test_suite_hash reproducibility note:
+# Computed over the ORIGINAL repo's tests/ layout via:
+#   find tests -type f -name '*.py' -not -path '*__pycache__*' | sort | xargs sha256sum | sha256sum
+# Reproducible by cloning https://github.com/rbarrois/python-semanticversion at source_commit.
+# Copied tests/original/ verified byte-identical (diff -r returned clean).
+# Recomputing over tests/original/ differs only by path prefix (tests/ vs tests/original/), not content.
