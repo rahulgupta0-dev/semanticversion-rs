@@ -13,11 +13,13 @@
 //! - `simple_spec` — SimpleSpec parser                   [PLANNED]
 //! - `npm_spec`    — NpmSpec parser                      [PLANNED]
 
+pub mod clause;
 pub mod error;
 pub mod identifiers;
 pub mod version;
 
-// Re-exports for a flat API (mirrors `from semantic_version import Version, validate`)
+// Re-exports for a flat API
+pub use clause::{Clause, Range, Operator, PrereleasePolicy, BuildPolicy};
 pub use error::SemverError;
 pub use identifiers::{BuildIdent, PreReleaseIdent};
 pub use version::{Version, validate, compare};

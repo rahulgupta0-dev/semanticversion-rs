@@ -62,7 +62,7 @@ Each entry: **Python behavior → Rust choice → Rationale → Tradeoff → Tes
 
 ---
 
-## D05 [PLANNED] — SimpleSpec Grammar → Rust parser design
+## D05 [DONE] — SimpleSpec Grammar → Rust parser design
 
 **Python:** Splits on `,`, then `NAIVE_SPEC` regex matches each block.  
 **Rust:** Same approach: split on `,`, match each block with the equivalent regex, then dispatch to `parse_block()`. The Rust `regex` crate handles the named capture groups.  
@@ -82,7 +82,7 @@ Each entry: **Python behavior → Rust choice → Rationale → Tradeoff → Tes
 
 ---
 
-## D07 [PLANNED] — `__contains__` (`v in spec`) → Rust `contains()` method
+## D07 [DONE] — `__contains__` (`v in spec`) → Rust `contains()` method
 
 **Python:** `__contains__` on `Spec` accepts a `Version` or returns `False` for strings.  
 **Rust:** Implement `fn contains(&self, v: &Version) -> bool` on `SimpleSpec`/`NpmSpec`. No operator overloading (`Contains` trait doesn't exist in stable Rust).  

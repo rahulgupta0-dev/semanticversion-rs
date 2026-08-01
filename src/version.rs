@@ -18,6 +18,10 @@
 //! Python's `__lt__`/`__gt__` use `_cmp_precedence_key` which EXCLUDES build metadata.
 //! This means: `1.0.0+a != 1.0.0+b` but `NOT (1.0.0+a < 1.0.0+b)` and `NOT (1.0.0+a > 1.0.0+b)`.
 //!
+//! PyO3 rich-compare MUST return definite bools per this table (lt=false, le=true, gt=false, ge=true for build-diff).
+//! NOT Python's NotImplemented — the original returns plain bools.
+//! NotImplemented is only for cross-type operands (Version vs non-Version).
+//!
 //! Rust's `Ord` trait contract requires: `a == b ↔ a.cmp(b) == Equal`.
 //! Our semantics VIOLATE this: two versions can be `ne` but have `Equal` precedence.
 //! Therefore: **we implement `Ord`/`PartialOrd` only on the key types**, not on `Version` itself.
@@ -352,15 +356,35 @@ impl Version {
         }
     }
 
-    /// Return this version truncated to patch level (strips prerelease and build).
+    /// Return a new Version truncated up to build level (strips build metadata, keeps prerelease).
+    /// Mirrors Python `v.truncate('prerelease')`.
+    pub fn truncate_to_prerelease(&self) -> Self {
+        Self {
+            major: self.major,
+            minor: self.minor,
+            patch: self.patch,
+            prerelease: self.prerelease.clone(),
+            build: if self.partial { None } else { Some(vec![]) },
+            partial: self.partial,
+        }
+    }
+
+    /// Return a new Version truncated to patch level (strips prerelease and build metadata).
+    /// Mirrors Python `v.truncate('patch')` or default `v.truncate()`.
+    pub fn truncate_to_patch(&self) -> Self {
+        Self {
+            major: self.major,
+            minor: self.minor,
+            patch: self.patch,
+            prerelease: if self.partial { None } else { Some(vec![]) },
+            build: if self.partial { None } else { Some(vec![]) },
+            partial: self.partial,
+        }
+    }
+
+    /// Deprecated alias for `truncate_to_patch()`.
     pub fn truncate(&self) -> Self {
-        Self::from_parts(
-            self.major,
-            self.minor.unwrap_or(0),
-            self.patch.unwrap_or(0),
-            None,
-            None,
-        )
+        self.truncate_to_patch()
     }
 
     // -----------------------------------------------------------------------
