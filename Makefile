@@ -1,36 +1,37 @@
 # Makefile — semanticversion-rs
 # Port Mortem 2026, Track D (Python → Rust)
+#
+# Default target (`make`): build the PyO3 extension into the venv and run the
+# ORIGINAL unmodified python-semanticversion test suite against it.
+# Exits non-zero if any test fails.
 
-PYTHON ?= python3
-VENV_PYTHON ?= .venv/bin/python
-MATURIN ?= maturin
+VENV ?= /home/dolphin/rust-venv
+PYTHON ?= $(VENV)/bin/python
+MATURIN ?= $(VENV)/bin/maturin
+PYTEST ?= $(VENV)/bin/python -m pytest
 
 .PHONY: all build test test-original test-rust fuzz bench clean dev
 
-all: build test
+all: dev test-original
 
 ## Install Rust build into active venv (development)
 dev:
-	$(MATURIN) develop
+	VIRTUAL_ENV=$(VENV) $(MATURIN) develop
 
 ## Full production build (wheel)
 build:
-	$(MATURIN) build --release
+	VIRTUAL_ENV=$(VENV) $(MATURIN) build --release
 
 ## Run ORIGINAL unmodified Python test suite against Rust build (judge's validation path)
-## TODO: uncomment after PyO3 binding module is complete
 test-original: dev
-	# TODO: enable once PyO3 binding (module 8) is implemented
-	# pytest tests/original/ -q --tb=short
-	@echo "TODO: PyO3 binding not yet implemented — enable after module 8"
+	$(PYTEST) tests/original/ -q
 
 ## Run native Rust unit tests
 test-rust:
 	cargo test
 
 ## Run both test suites
-test: test-rust
-	@echo "test-original: run 'make test-original' once PyO3 binding is complete"
+test: test-rust test-original
 
 ## Differential fuzz (60+ seconds against Python oracle)
 fuzz: dev

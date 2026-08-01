@@ -13,6 +13,7 @@
 //! - `simple_spec` — SimpleSpec parser                   [DONE]
 //! - `npm_spec`    — NpmSpec parser                      [DONE]
 
+pub mod bindings;
 pub mod clause;
 pub mod error;
 pub mod identifiers;
@@ -27,3 +28,15 @@ pub use identifiers::{BuildIdent, PreReleaseIdent};
 pub use npm_spec::NpmSpec;
 pub use simple_spec::SimpleSpec;
 pub use version::{compare, validate, Version};
+
+
+// ---------------------------------------------------------------------------
+// PyO3 extension module entry point
+// ---------------------------------------------------------------------------
+
+use pyo3::prelude::*;
+
+#[pymodule]
+fn semantic_version(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    bindings::register_module(m)
+}
