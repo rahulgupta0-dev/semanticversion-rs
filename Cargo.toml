@@ -1,0 +1,23 @@
+[package]
+name = "semanticversion-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of python-semanticversion — Port Mortem 2026, Track D"
+license = "BSD-2-Clause"
+
+[lib]
+name = "semantic_version"
+crate-type = ["cdylib", "rlib"]
+
+# Core deps — added module-by-module as each is implemented
+[dependencies]
+# thiserror = "1"      # error.rs — added with module 1
+# regex = "1"          # version.rs — added with module 2
+# pyo3 = { version = "0.25", features = ["extension-module"] }  # lib.rs PyO3 binding — added with module 8
+
+[dev-dependencies]
+# criterion = { version = "0.5", features = ["html_reports"] }  # benches — added with module 10
+
+# [[bench]]
+# name = "semver_bench"
+# harness = false

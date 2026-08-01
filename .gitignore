@@ -1,0 +1,12 @@
+/target
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+dist/
+build/
+fuzz/log.txt
+fuzz/divergences.txt
+*.so
+*.dylib

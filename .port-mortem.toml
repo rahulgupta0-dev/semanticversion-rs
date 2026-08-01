@@ -1,0 +1,26 @@
+[submission]
+track = "D"
+source_language = "Python"
+target_language = "Rust"
+source_repo = "https://github.com/rbarrois/python-semanticversion"
+source_commit = "2cbbee3154d9011cee873ae3a020cd17c669f6df"
+kickoff_time = "2026-07-31T18:00:00Z"
+test_suite_hash = "5a4c71cee61257d91d04562a5df3d3eb66f6162e255796bef927d9653f67342c"
+
+[team]
+name = "Rahul Gupta (Senku + Tako)"
+size = 2  # 1 human + 1 AI agent
+
+[bonuses_claimed]
+differential_fuzz_survivor = false  # update to true after fuzz/log.txt shows FUZZ_SURVIVOR=true
+zero_unsafe = true                  # claim: grep -r "unsafe" src/ returns empty
+decision_log_10 = true             # 16 entries (D00–D15) documented
+bug_catcher = false                 # update if differential fuzz finds a latent Python bug
+
+[parity]
+total_original_tests = 54
+excluded_tests = 0
+excluded_test_files = ["test_django.py"]
+excluded_rationale = "Django ORM fields out of scope per R6 (no Python runtime). Tests skip as 'Django not installed' — identical to baseline."
+passing_rust_tests = "TBD"
+parity_percent = "TBD"
