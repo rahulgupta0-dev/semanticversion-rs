@@ -22,7 +22,7 @@ Each entry: **Python behavior → Rust choice → Rationale → Tradeoff → Tes
 
 ---
 
-## D01 [PLANNED] — Integer Representation: Python arbitrary-precision int → bounded Rust `u64`
+## D01 [DONE] — Integer Representation: Python arbitrary-precision int → bounded Rust `u64`
 
 **Python:** `major`, `minor`, `patch` are Python `int` — arbitrary precision, no overflow.  
 **Rust:** `u64` (max 18446744073709551615). SemVer 2.0 spec requires non-negative integers; no real version exceeds `u64`.  
@@ -32,7 +32,7 @@ Each entry: **Python behavior → Rust choice → Rationale → Tradeoff → Tes
 
 ---
 
-## D02 [PLANNED] — Optional Fields (partial versions) → `Option<u64>`
+## D02 [DONE] — Optional Fields (partial versions) → `Option<u64>`
 
 **Python:** `minor`, `patch` can be `None` when `partial=True` (deprecated in 2.x, removed in 3.0).  
 **Rust:** Keep `Option<u64>` for minor/patch internally in a `PartialVersion` helper only used during spec parsing. `Version` struct always has `(u64, u64, u64)`.  
@@ -42,7 +42,7 @@ Each entry: **Python behavior → Rust choice → Rationale → Tradeoff → Tes
 
 ---
 
-## D03 [PLANNED] — Python exceptions → `Result<T, SemverError>` (thiserror)
+## D03 [DONE] — Python exceptions → `Result<T, SemverError>` (thiserror)
 
 **Python:** Invalid input raises `ValueError` with a descriptive message.  
 **Rust:** `pub enum SemverError` via `thiserror`, with variants `InvalidVersion(String)`, `InvalidSpec(String)`, `InvalidRange(String)`.  
@@ -52,7 +52,7 @@ Each entry: **Python behavior → Rust choice → Rationale → Tradeoff → Tes
 
 ---
 
-## D04 [PLANNED] — String Parsing: regex vs nom vs hand-rolled
+## D04 [DONE] — String Parsing: regex vs nom vs hand-rolled
 
 **Python:** Uses compiled `re` module with named groups.  
 **Rust choice:** Hand-rolled recursive-descent parser for specs; `regex` crate for version string parsing.  
@@ -102,7 +102,7 @@ Each entry: **Python behavior → Rust choice → Rationale → Tradeoff → Tes
 
 ---
 
-## D09 [PLANNED] — Version Coercion / Partial Semantics
+## D09 [DONE] — Version Coercion / Partial Semantics
 
 **Python:** `Version.coerce()` accepts lax strings like `"0.1"`, `"0.1.2.3+4"`. Uses regex to extract leading numeric part, fills zeros, handles extra components as build.  
 **Rust:** Port `coerce()` directly. Use `regex` for extraction, string manipulation for the rest.  
@@ -112,7 +112,7 @@ Each entry: **Python behavior → Rust choice → Rationale → Tradeoff → Tes
 
 ---
 
-## D10 [PLANNED] — Error Messages & Parity of Failure Modes
+## D10 [DONE] — Error Messages & Parity of Failure Modes
 
 **Python:** Error messages include `%r` (Python repr) of the invalid string.  
 **Rust:** Match error message format where tests check it (some tests use `assertRaises` without checking message). Where message IS checked, use `{:?}` (Rust debug repr) which produces similar `"..."` quoting.  
@@ -122,7 +122,7 @@ Each entry: **Python behavior → Rust choice → Rationale → Tradeoff → Tes
 
 ---
 
-## D11 [PLANNED] — Prerelease / Build Metadata Ordering Rules
+## D11 [DONE] — Prerelease / Build Metadata Ordering Rules
 
 **Python:** Prerelease identifiers: numeric parts compared as integers, alpha parts as ASCII bytes, numeric < alpha < MaxIdentifier (sentinel for "no prerelease").  
 **Rust:** Implement `PreReleaseIdent` enum: `Numeric(u64)`, `Alpha(Vec<u8>)`, `Max`. Implement `Ord` with the same rules. `Max` only appears in the precedence key of versions without prerelease (so they sort AFTER prerelease versions with same patch).  
