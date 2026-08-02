@@ -1,0 +1,28 @@
+{
+  "rust": {
+    "v_parse_ms": 208.8,
+    "s_parse_ms": 858.63,
+    "n_parse_ms": 723.13,
+    "match_ms": 100.82,
+    "cmp_ms": 534.04,
+    "wall_sec": 2.55,
+    "label": "rust"
+  },
+  "python_ref": {
+    "v_parse_ms": 2292.38,
+    "s_parse_ms": 5274.48,
+    "n_parse_ms": 8163.36,
+    "match_ms": 6062.22,
+    "cmp_ms": 143.05,
+    "wall_sec": 22.33,
+    "label": "python_ref"
+  },
+  "speedup": {
+    "v_parse_ms_speedup": 10.98,
+    "s_parse_ms_speedup": 6.14,
+    "n_parse_ms_speedup": 11.29,
+    "match_ms_speedup": 60.13,
+    "cmp_ms_speedup": 0.27
+  },
+  "aggregate_speedup": 9.04
+}

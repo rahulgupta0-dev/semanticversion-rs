@@ -1,0 +1,61 @@
+{
+  "hardware": {
+    "cpu": "Intel x86_64 @ 2.2GHz",
+    "cores": 2,
+    "ram": "15 GiB",
+    "os": "Debian 12",
+    "note": "Hackathon cloud VM — not bench-purified"
+  },
+  "criterion_native_rust": {
+    "Version::parse": {
+      "p50_ns": 1918.2,
+      "p99_ns": 34800.7,
+      "mean_ns": 2415.0,
+      "throughput_ops_per_sec": 414077.0
+    },
+    "SimpleSpec::parse": {
+      "p50_ns": 5793.0,
+      "p99_ns": 36885.4,
+      "mean_ns": 6723.4,
+      "throughput_ops_per_sec": 148734.0
+    },
+    "NpmSpec::parse": {
+      "p50_ns": 11517.7,
+      "p99_ns": 37948.6,
+      "mean_ns": 12563.8,
+      "throughput_ops_per_sec": 79594.0
+    },
+    "match_version": {
+      "p50_ns": 1522.9,
+      "p99_ns": 5873.5,
+      "mean_ns": 1675.6,
+      "throughput_ops_per_sec": 596818.0
+    },
+    "precedence_lt": {
+      "p50_ns": 386.1,
+      "p99_ns": 1178.1,
+      "mean_ns": 439.9,
+      "throughput_ops_per_sec": 2273188.0
+    },
+    "precedence_gt": {
+      "p50_ns": 405.7,
+      "p99_ns": 1485.9,
+      "mean_ns": 459.1,
+      "throughput_ops_per_sec": 2178208.0
+    }
+  },
+  "rust_vs_python_speedup": {
+    "version_parse": 10.98,
+    "simple_spec_parse": 6.14,
+    "npm_spec_parse": 11.29,
+    "match_version": 60.13,
+    "comparison_precedence_key": 0.27,
+    "note": "comparison uses Python-level precedence_key via PyO3 binding — binding overhead makes this slower; native precedence_lt ~386 ns p50 (2.3M ops/s)",
+    "aggregate": 9.04
+  },
+  "peak_rss": {
+    "rust_mb": 12.5,
+    "python_ref_mb": 15.9,
+    "reduction_pct": 21.4
+  }
+}

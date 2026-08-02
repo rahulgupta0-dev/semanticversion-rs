@@ -19,4 +19,8 @@ regex = "1"
 pyo3 = { version = "0.25", features = ["auto-initialize"] }
 
 [dev-dependencies]
-# criterion = { version = "0.5", features = ["html_reports"] }  # added with bench module
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "criterion_bench"
+harness = false
