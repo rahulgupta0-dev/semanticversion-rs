@@ -3,7 +3,7 @@
 Port Mortem 2026, Track D | Module 11
 
 **Hardware:** Intel Xeon @ 2.20 GHz / 2 cores / 15 GiB RAM / Debian 12 (cloud VM — hackathon bench, not bare-metal)
-
+**Hardware:** Intel x86_64 @ 2.20GHz / 2 physical cores / 4 logical CPUs / 15 GiB RAM / Debian 12 (cloud VM — hackathon bench, not bare-metal)
 ---
 
 ## Criterion Micro-benchmarks (Native Rust, no PyO3)

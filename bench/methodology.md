@@ -6,7 +6,7 @@ Port Mortem 2026, Track D | Module 11
 
 ## Hardware
 
-- **CPU**: Intel Xeon @ 2.20GHz, 2 cores (cloud VM)
+- **CPU**: Intel x86_64 @ 2.20GHz, 2 physical cores / 4 logical CPUs (SMT, cloud VM)
 - **RAM**: 15 GiB (4.4 GiB available at benchmark time)
 - **OS**: Debian 12 (Linux 6.1.0-51-cloud-amd64, x86_64)
 - **Rust**: 1.96.0 (2026-05-25), release profile (`opt-level=3`)

@@ -1,7 +1,7 @@
 {
   "hardware": {
     "cpu": "Intel x86_64 @ 2.2GHz",
-    "cores": 2,
+    "cores": "2 physical / 4 logical (SMT)",
     "ram": "15 GiB",
     "os": "Debian 12",
     "note": "Hackathon cloud VM — not bench-purified"

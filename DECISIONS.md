@@ -247,7 +247,7 @@ Each entry: **Python behavior → Rust choice → Rationale → Tradeoff → Tes
 - **Peak RSS** (`bench/measure_rss.py`): polls `/proc/self/status` every 1ms in background thread while running a mixed workload (100k parses + 100k matches + 100k live reckless). Both measurements include the full Python process overhead (~20MB interpreter baseline).
 
 **Hardware:**
-- Intel Mac @ 2.20GHz / 2 cores / 15 GiB RAM / Debian 12 on cloud VM
+- Intel x86_64 @ 2.20GHz / 2 physical cores / 4 logical CPUs (SMT) / 15 GiB RAM / Debian 12 (cloud VM)
 - Rust 1.96.0 rel, Python 3.11.2 CPython
 
 **Criterion Results (p50/p99ns, thr):**
