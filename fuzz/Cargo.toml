@@ -1,0 +1,19 @@
+[package]
+name = "semantic_version-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+description = "cargo-fuzz harness for the semanticversion-rs Rust port"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+semanticversion-rs = { path = ".." }
+libfuzzer-sys = "0.4"
+
+[[bin]]
+name = "semantic_version"
+path = "fuzz_targets/semantic_version.rs"
+test = false
+doc = false

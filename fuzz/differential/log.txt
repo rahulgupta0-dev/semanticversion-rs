@@ -1,0 +1,5 @@
+=== DIFFERENTIAL FUZZ ===
+seed=0 pairs=500 div=0 soft=36 elapsed=0.0s
+seed=1 pairs=500 div=254 soft=34 elapsed=1.8s
+DIVERGENCE kind=version text='1.15.6' detail=ok: ref=True rust=False
+SUMMARY: duration=9.0s seeds=1 pairs=1000 hard_divergences=254 soft_msg_diffs=70 anomalies=0 FUZZ_SURVIVOR=false

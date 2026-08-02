@@ -325,25 +325,31 @@ fn test_prerelease_gt() {
                 }
                 _ => panic!("Expected AllOf in first branch"),
             }
-            // Second branch: truncated target
+            // Second branch: truncated target wrapped in AllOf (Python's frozenset
+            // semantics keeps AllOf wrappers even on single-element children).
             match &branches[1] {
-                Clause::Range(r) => {
-                    assert_eq!(r.operator, Operator::Gt);
-                    assert_eq!(r.target, Version::parse("1.2.3").unwrap());
-                    assert_eq!(r.prerelease_policy, PrereleasePolicy::SamePatch);
+                Clause::AllOf(clauses) => {
+                    assert_eq!(clauses.len(), 1);
+                    match &clauses[0] {
+                        Clause::Range(r) => {
+                            assert_eq!(r.operator, Operator::Gt);
+                            assert_eq!(r.target, Version::parse("1.2.3").unwrap());
+                            assert_eq!(r.prerelease_policy, PrereleasePolicy::SamePatch);
+                        }
+                        _ => panic!("Expected Range inside AllOf in second branch"),
+                    }
                 }
-                _ => panic!("Expected Range in second branch, got {:?}", branches[1]),
+                _ => panic!("Expected AllOf in second branch, got {:?}", branches[1]),
             }
         }
         _ => panic!("Expected AnyOf, got {:?}", spec.clause),
     }
 }
-
 #[test]
 fn test_prerelease_tilde() {
     // '~1.2.3-beta.2' -> AnyOf(AllOf(<1.2.4 ALWAYS, >=1.2.3-beta.2 SAMEPATCH), AllOf(<1.3.0 SAMEPATCH, >=1.2.3 SAMEPATCH))
     let spec = NpmSpec::parse("~1.2.3-beta.2").unwrap();
-    match &spec.clause {
+     match &spec.clause {
         Clause::AnyOf(branches) => {
             assert_eq!(branches.len(), 2);
         }

@@ -1,0 +1,4 @@
+=== DIFFERENTIAL FUZZ ===
+seed=0 pairs=500 div=48 soft=36 elapsed=0.0s
+DIVERGENCE kind=version text='0.0.0' detail=field clause_repr: ref=AnyOf(AllOf(Range('<', Version('842194.569366.469730'), prerelease_policy='same- rust=AnyOf(AllOf(Range('<', Version('842194.569366.469730'), prerelease_policy='same-
+SUMMARY: duration=0.6s seeds=0 pairs=500 hard_divergences=48 soft_msg_diffs=36 anomalies=0 FUZZ_SURVIVOR=false

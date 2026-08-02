@@ -156,8 +156,14 @@ pub fn parse_prerelease_identifiers(s: &str) -> Result<Vec<PreReleaseIdent>, Str
                 if part.len() > 1 && part.starts_with('0') {
                     return Err(format!("Leading zero in prerelease identifier {:?}", part));
                 }
-                let n: u64 = part.parse().map_err(|_| format!("Numeric overflow in {:?}", part))?;
-                Ok(PreReleaseIdent::Numeric(n))
+                // Numeric overflow falls back to Alpha — Python's int is
+                // arbitrary-precision, so a u64-overflowing all-digit string
+                // is stored as a raw string identifier.
+                if let Ok(n) = part.parse::<u64>() {
+                    Ok(PreReleaseIdent::Numeric(n))
+                } else {
+                    Ok(PreReleaseIdent::Alpha(part.to_owned()))
+                }
             } else {
                 Ok(PreReleaseIdent::Alpha(part.to_owned()))
             }

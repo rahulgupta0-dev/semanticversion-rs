@@ -195,13 +195,13 @@ impl SimpleSpec {
 
         let upper = if partial {
             // ~=M.m -> <M+1.0.0
-            let upper_target = Version::from_parts(target.major + 1, 0, 0, None, None);
+            let upper_target = Version::from_parts(target.major.saturating_add(1), 0, 0, None, None);
             Range::new(Operator::Lt, upper_target, PrereleasePolicy::Natural, BuildPolicy::Implicit)?
         } else {
             // ~=M.m.p -> <M.m+1.0
             let upper_target = Version::from_parts(
                 target.major,
-                target.minor.unwrap_or(0) + 1,
+                target.minor.unwrap_or(0).saturating_add(1),
                 0,
                 None,
                 None,
@@ -223,13 +223,13 @@ impl SimpleSpec {
 
         let upper_target = if target.major > 0 {
             // ^M.m.p -> <M+1.0.0
-            Version::from_parts(target.major + 1, 0, 0, None, None)
+            Version::from_parts(target.major.saturating_add(1), 0, 0, None, None)
         } else if target.minor.unwrap_or(0) > 0 {
             // ^0.m.p -> <0.m+1.0
-            Version::from_parts(0, target.minor.unwrap_or(0) + 1, 0, None, None)
+            Version::from_parts(0, target.minor.unwrap_or(0).saturating_add(1), 0, None, None)
         } else {
             // ^0.0.p -> <0.0.p+1
-            Version::from_parts(0, 0, target.patch.unwrap_or(0) + 1, None, None)
+            Version::from_parts(0, 0, target.patch.unwrap_or(0).saturating_add(1), None, None)
         };
 
         let upper = Range::new(Operator::Lt, upper_target, PrereleasePolicy::Natural, BuildPolicy::Implicit)?;
@@ -247,10 +247,10 @@ impl SimpleSpec {
 
         let upper_target = if partial {
             // ~M.m -> <M.m+1.0
-            Version::from_parts(target.major, target.minor.unwrap_or(0) + 1, 0, None, None)
+            Version::from_parts(target.major, target.minor.unwrap_or(0).saturating_add(1), 0, None, None)
         } else {
             // ~M.m.p -> <M.m+1.0
-            Version::from_parts(target.major, target.minor.unwrap_or(0) + 1, 0, None, None)
+            Version::from_parts(target.major, target.minor.unwrap_or(0).saturating_add(1), 0, None, None)
         };
 
         let upper = Range::new(Operator::Lt, upper_target, PrereleasePolicy::Natural, BuildPolicy::Implicit)?;

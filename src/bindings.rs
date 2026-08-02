@@ -808,6 +808,9 @@ fn clause_to_spec_items(
 // the Python-visible `Spec`/`SimpleSpec`/`SpecItem` match `base.py` clause
 // for clause.
 
+/// Python-exact SimpleSpec parsing (base.py SimpleSpec.Parser.parse).
+/// Matches Python's `clause = Always(); for block in blocks: clause &= parse_block(block)`,
+/// including the AllOf-flattening and frozenset-dedup behavior.
 fn python_simple_parse(expression: &str) -> Result<crate::clause::Clause, SemverError> {
     if expression.trim().is_empty() {
         return Err(SemverError::invalid_spec("Invalid simple spec: empty string"));
@@ -816,7 +819,34 @@ fn python_simple_parse(expression: &str) -> Result<crate::clause::Clause, Semver
     for block in expression.split(',') {
         clause = clause & python_parse_block(block)?;
     }
-    Ok(clause.simplify())
+    // Python's chain only produces a bare clause after the FIRST block
+    // (Always & X = X).  From the second block onwards, `&=` always wraps
+    // in AllOf via Matcher.__and__ -> AllOf(self, other).  Even with 2
+    // identical blocks, Python's frozenset dedupes but keeps the AllOf wrapper.
+    if expression.contains(',') {
+        // Flatten nested AllOf and dedupe (frozenset semantics).
+        let flat = flatten_allof_for_simple(clause);
+        let mut seen: std::collections::HashSet<crate::clause::Clause> = std::collections::HashSet::new();
+        let mut deduped: Vec<crate::clause::Clause> = Vec::new();
+        for c in flat {
+            if seen.insert(c.clone()) {
+                deduped.push(c);
+            }
+        }
+        Ok(crate::clause::Clause::AllOf(deduped))
+    } else {
+        // Single block: return bare (Always & X = X in Python).
+        Ok(clause)
+    }
+}
+
+/// Flatten AllOf children; other clauses pass through unchanged.
+fn flatten_allof_for_simple(c: crate::clause::Clause) -> Vec<crate::clause::Clause> {
+    if let crate::clause::Clause::AllOf(inner) = c {
+        inner
+    } else {
+        vec![c]
+    }
 }
 
 fn python_parse_block(block: &str) -> Result<crate::clause::Clause, SemverError> {
@@ -835,7 +865,7 @@ fn python_parse_block(block: &str) -> Result<crate::clause::Clause, SemverError>
         .expect("naive spec regex is valid")
     });
     let caps = re.captures(block).ok_or_else(|| {
-        SemverError::invalid_spec(&format!("Invalid simple block {:?}", block))
+        SemverError::invalid_spec(&format!("Invalid simple block '{block}'"))
     })?;
 
     let op_str = caps.name("op").map(|m| m.as_str()).unwrap_or("");
@@ -852,10 +882,9 @@ fn python_parse_block(block: &str) -> Result<crate::clause::Clause, SemverError>
     };
 
     let empty = |t: Option<&str>| matches!(t, None | Some("*"));
-    let major = if empty(Some(major_t)) { None } else { Some(major_t.parse::<u64>().map_err(|_| SemverError::invalid_spec(&format!("Invalid simple block {:?}", block)))?) };
-    let minor = if empty(minor_t) { None } else { Some(minor_t.unwrap().parse::<u64>().map_err(|_| SemverError::invalid_spec(&format!("Invalid simple block {:?}", block)))?) };
-    let patch = if empty(patch_t) { None } else { Some(patch_t.unwrap().parse::<u64>().map_err(|_| SemverError::invalid_spec(&format!("Invalid simple block {:?}", block)))?) };
-
+    let major = if empty(Some(major_t)) { None } else { Some(major_t.parse::<u64>().map_err(|_| SemverError::invalid_spec(&format!("Invalid simple block '{block}'")))?) };
+    let minor = if empty(minor_t) { None } else { Some(minor_t.unwrap().parse::<u64>().map_err(|_| SemverError::invalid_spec(&format!("Invalid simple block '{block}'")))?) };
+    let patch = if empty(patch_t) { None } else { Some(patch_t.unwrap().parse::<u64>().map_err(|_| SemverError::invalid_spec(&format!("Invalid simple block '{block}'")))?) };
     // base.py:1103-1118 — kwargs-built full target.
     let target = if major.is_none() {
         V::from_parts(0, 0, 0, Some(vec![]), Some(vec![]))
@@ -866,7 +895,17 @@ fn python_parse_block(block: &str) -> Result<crate::clause::Clause, SemverError>
     } else {
         let prerelease_idents: Vec<PreReleaseIdent> = prerel
             .filter(|p| !p.is_empty())
-            .map(|p| p.split('.').map(string_to_prerelease_ident).collect())
+            .map(|p| {
+                let parts: Result<Vec<PreReleaseIdent>, _> = p.split('.').map(|part| {
+                    if part.is_empty() {
+                        Err(SemverError::invalid_spec(&format!("Invalid empty identifier '' in {:?}", p)))
+                    } else {
+                        Ok(string_to_prerelease_ident(part))
+                    }
+                }).collect();
+                parts
+            })
+            .transpose()?
             .unwrap_or_default();
         let build_idents: Vec<BuildIdent> = build
             .filter(|b| !b.is_empty())
@@ -885,19 +924,17 @@ fn python_parse_block(block: &str) -> Result<crate::clause::Clause, SemverError>
     if (major.is_none() || minor.is_none() || patch.is_none())
         && (prerel.map_or(false, |p| !p.is_empty()) || build.map_or(false, |b| !b.is_empty()))
     {
-        return Err(SemverError::invalid_spec(&format!("Invalid simple spec {:?}", block)));
+        return Err(SemverError::invalid_spec(&format!("Invalid simple spec '{block}'")));
     }
     // base.py:1123 — build only allowed on == and !=.
     if build.is_some() && prefix != "==" && prefix != "!=" {
-        return Err(SemverError::invalid_spec(&format!("Invalid simple spec {:?}", block)));
+        return Err(SemverError::invalid_spec(&format!("Invalid simple spec '{block}'")));
     }
-
+    let natural = PrereleasePolicy::Natural;
+    let implicit = BuildPolicy::Implicit;
     let r = |op: Operator, t: V, pp: PrereleasePolicy, bp: BuildPolicy| -> Result<crate::clause::Clause, SemverError> {
         Ok(crate::clause::Clause::Range(Range::new(op, t, pp, bp)?))
     };
-    let natural = PrereleasePolicy::Natural;
-    let implicit = BuildPolicy::Implicit;
-
     match prefix {
         // base.py:1126-1134
         "^" => {
@@ -1253,19 +1290,38 @@ pub struct Clause {
 }
 
 fn python_clause_repr(c: &crate::clause::Clause) -> String {
+    use crate::clause::{BuildPolicy, PrereleasePolicy};
     match c {
         crate::clause::Clause::Always => "Always()".to_owned(),
         crate::clause::Clause::Never => "Never()".to_owned(),
-        crate::clause::Clause::Range(r) => format!(
-            "Range('{}', Version('{}'), prerelease_policy={:?}, build_policy={:?})",
-            r.operator, r.target, r.prerelease_policy, r.build_policy
-        ),
+        crate::clause::Clause::Range(r) => {
+            let mut s = format!("Range('{}', Version('{}')", r.operator, r.target);
+            if r.prerelease_policy != PrereleasePolicy::Natural {
+                let v = match r.prerelease_policy {
+                    PrereleasePolicy::SamePatch => "same-patch",
+                    PrereleasePolicy::Always => "always",
+                    PrereleasePolicy::Natural => unreachable!(),
+                };
+                s.push_str(&format!(", prerelease_policy='{}'", v));
+            }
+            if r.build_policy != BuildPolicy::Implicit {
+                let v = match r.build_policy {
+                    BuildPolicy::Strict => "strict",
+                    BuildPolicy::Implicit => unreachable!(),
+                };
+                s.push_str(&format!(", build_policy='{}'", v));
+            }
+            s.push(')');
+            s
+        }
         crate::clause::Clause::AllOf(children) => {
-            let inner: Vec<String> = children.iter().map(python_clause_repr).collect();
+            let mut inner: Vec<String> = children.iter().map(python_clause_repr).collect();
+            inner.sort();
             format!("AllOf({})", inner.join(", "))
         }
         crate::clause::Clause::AnyOf(children) => {
-            let inner: Vec<String> = children.iter().map(python_clause_repr).collect();
+            let mut inner: Vec<String> = children.iter().map(python_clause_repr).collect();
+            inner.sort();
             format!("AnyOf({})", inner.join(", "))
         }
     }

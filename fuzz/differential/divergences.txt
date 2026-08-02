@@ -1,0 +1,54 @@
+kind=version
+text=1.15.6
+REF: {
+ "kind": "version",
+ "result": {
+  "anomalies": [],
+  "build": [],
+  "compare": [
+   1,
+   1,
+   1,
+   1,
+   -1,
+   1
+  ],
+  "hash": 5687250989402971733,
+  "major": 1,
+  "minor": 15,
+  "ok": true,
+  "partial": false,
+  "patch": 6,
+  "prerelease": [],
+  "repr": "Version('1.15.6')",
+  "str": "1.15.6",
+  "valid": true
+ },
+ "text": "1.15.6"
+}
+RUST: {
+ "kind": "version",
+ "result": {
+  "anomalies": [],
+  "build": [],
+  "compare": [
+   1,
+   1,
+   1,
+   1,
+   -1,
+   1
+  ],
+  "hash": 7908054781896212037,
+  "major": 1,
+  "minor": 15,
+  "ok": true,
+  "partial": false,
+  "patch": 6,
+  "prerelease": [],
+  "repr": "Version('1.15.6')",
+  "str": "1.15.6",
+  "valid": true
+ },
+ "text": "1.15.6"
+}

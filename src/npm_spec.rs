@@ -52,7 +52,7 @@ fn npm_spec_block_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"^v?(?P<op><=|>=|<|>|=|\^|~)?(?P<major>[0-9]+|[xX*])(?:\.(?P<minor>[0-9]+|[xX*])(?:\.(?P<patch>[0-9]+|[xX*]))?)?(?:-(?P<prerel>[a-zA-Z0-9.-]+))?(?:\+(?P<build>[a-zA-Z0-9.-]+))?$"
+            r"^v?(?P<op><=|>=|<|>|=|\^|~)?(?P<major>[0-9]+|[xX*])(?:\.(?P<minor>[0-9]+|[xX*])(?:\.(?P<patch>[0-9]+|[xX*]))?)?(?:-(?P<prerel>[a-zA-Z0-9.-]*))?(?:\+(?P<build>[a-zA-Z0-9.-]*))?$"
         ).expect("npm_spec_block regex is valid")
     })
 }
@@ -82,22 +82,32 @@ impl NpmSpec {
             return Ok(Self { clause: Clause::AllOf(vec![Clause::Range(range)]) });
         }
 
-        // Split on '||' (OR)
+        // Split on '||' (OR). Empty groups become '*' (>=0.0.0) per base.py:1287.
+        // Python accumulates with `result = Never()` then `result |= AllOf(...)`,
+        // which NEVER simplifies — single clauses stay wrapped in AllOf.
         let or_groups: Vec<&str> = s.split("||").map(|g| g.trim()).collect();
-        let mut or_clauses: Vec<Clause> = Vec::new();
-
-        for group in or_groups {
-            let group_clause = Self::parse_group(group)?;
-            or_clauses.push(group_clause);
-        }
-
-        let combined = if or_clauses.len() == 1 {
-            or_clauses.into_iter().next().unwrap()
+        let non_empty: Vec<&str> = or_groups.iter().filter(|g| !g.is_empty()).copied().collect();
+        let mut result = Clause::Never;
+        // All-empty case (e.g. '||', '|| ||'): Python's frozenset dedupes
+        // equivalent groups, leaving AnyOf(AllOf(*)) with a single canonical
+        // clause.  We emulate by processing one canonical group and wrapping
+        // in AnyOf (Python also wraps here because there were >=2 OR groups).
+        let groups: Vec<&str> = if non_empty.is_empty() {
+            vec![">=0.0.0"]
         } else {
-            or_clauses.into_iter().reduce(|acc, c| acc | c).unwrap_or(Clause::Never)
+            or_groups.iter().copied().collect()
         };
-
-        Ok(Self { clause: combined.simplify() })
+        let was_all_empty = non_empty.is_empty();
+        for group in groups {
+            let effective = if group.is_empty() { ">=0.0.0" } else { group };
+            let group_clause = Self::parse_group(effective)?;
+            result = result | group_clause;
+        }
+        if was_all_empty && matches!(result, Clause::AllOf(_)) {
+            // Wrap the single canonical AllOf in AnyOf to match Python's structure.
+            result = Clause::AnyOf(vec![result]);
+        }
+        Ok(Self { clause: result })
     }
 
     /// Parse a group (hyphen range or space-separated blocks).
@@ -123,12 +133,17 @@ impl NpmSpec {
                 any_has_prerelease = true;
             }
         }
-        
-        // If no prerelease blocks, simple AND
+
+        // If no prerelease blocks, simple AND — always wrap in AllOf
+        // (Python: AllOf(*non_prerel_clauses), never simplified).
+        // Flatten inner AllOf and dedupe (Python uses frozenset).
         if !any_has_prerelease {
-            let clauses: Vec<Clause> = parsed_blocks.into_iter().map(|(c, _)| c).collect();
-            let combined = clauses.into_iter().reduce(|acc, c| acc & c).unwrap_or(Clause::Always);
-            return Ok(combined.simplify());
+            let clauses: Vec<Clause> = parsed_blocks
+                .into_iter()
+                .flat_map(|(c, _)| Self::flatten_allof(c))
+                .collect();
+            let deduped = Self::dedup_preserve_order(clauses);
+            return Ok(Clause::AllOf(deduped));
         }
         
         // If we have prerelease blocks, we need to construct the AnyOf tree
@@ -137,7 +152,7 @@ impl NpmSpec {
         
         let mut prerelease_branch_clauses: Vec<Clause> = Vec::new();
         let mut non_prerelease_branch_clauses: Vec<Clause> = Vec::new();
-        
+
         for (clause, has_prerelease) in parsed_blocks {
             if has_prerelease {
                 // Extract the AnyOf and get both branches
@@ -146,9 +161,11 @@ impl NpmSpec {
                     if let Some(Clause::AllOf(prerelease_parts)) = branches.first() {
                         prerelease_branch_clauses.extend(prerelease_parts.clone());
                     }
-                    // Second branch is the non-prerelease branch with truncated target
+                    // Second branch is the non-prerelease branch with truncated target.
+                    // Flatten its AllOf children (e.g. from a tilde-expanded block)
+                    // to avoid double-wrapping AllOf inside the outer AllOf.
                     if let Some(second) = branches.get(1) {
-                        non_prerelease_branch_clauses.push(second.clone());
+                        non_prerelease_branch_clauses.extend(Self::flatten_allof(second.clone()));
                     }
                 }
             } else {
@@ -156,7 +173,7 @@ impl NpmSpec {
                 // (base.py:1335-1336). Putting them in the prerelease branch would
                 // wrongly exclude same-patch prereleases: e.g. `<2.0.0` (SAMEPATCH)
                 // rejects `1.0.0-rc.5` because its patch != 2.0.0's patch.
-                non_prerelease_branch_clauses.push(clause);
+                non_prerelease_branch_clauses.extend(Self::flatten_allof(clause));
             }
         }
 
@@ -166,10 +183,13 @@ impl NpmSpec {
             "expected at least the ALWAYS fence + original range in the prerelease branch"
         );
 
-        let prerelease_branch = prerelease_branch_clauses.into_iter().reduce(|acc, c| acc & c).unwrap_or(Clause::Always);
-        let non_prerelease_branch = non_prerelease_branch_clauses.into_iter().reduce(|acc, c| acc & c).unwrap_or(Clause::Always);
+        // Dedupe to match Python's frozenset semantics.
+        let prerelease_branch_clauses = Self::dedup_preserve_order(prerelease_branch_clauses);
+        let non_prerelease_branch_clauses = Self::dedup_preserve_order(non_prerelease_branch_clauses);
+        let prerelease_branch = Clause::AllOf(prerelease_branch_clauses);
+        let non_prerelease_branch = Clause::AllOf(non_prerelease_branch_clauses);
 
-        Ok(Clause::AnyOf(vec![prerelease_branch.simplify(), non_prerelease_branch.simplify()]))
+        Ok(Clause::AnyOf(vec![prerelease_branch, non_prerelease_branch]))
     }
 
     /// Parse a hyphen range `A - B`.
@@ -194,12 +214,13 @@ impl NpmSpec {
 
         // Parse right and determine if partial
         let right_parsed = Self::parse_version_basic(right)?;
+        let right_has_prerelease = right_parsed.3.is_some();
         let (upper_op, upper_target) = if right_parsed.1.is_none() {
             // Major only (e.g., "2") -> <3.0.0
-            (Operator::Lt, Version::from_parts(right_parsed.0 + 1, 0, 0, None, None))
+            (Operator::Lt, Version::from_parts(right_parsed.0.saturating_add(1), 0, 0, None, None))
         } else if right_parsed.2.is_none() {
             // Major.minor only (e.g., "2.3") -> <2.4.0
-            (Operator::Lt, Version::from_parts(right_parsed.0, right_parsed.1.unwrap() + 1, 0, None, None))
+            (Operator::Lt, Version::from_parts(right_parsed.0, right_parsed.1.unwrap().saturating_add(1), 0, None, None))
         } else {
             // Full version -> inclusive
             let right_version = Version::from_parts(
@@ -212,16 +233,46 @@ impl NpmSpec {
             (Operator::Lte, right_version)
         };
 
-        let upper = Range::new(upper_op, upper_target, PrereleasePolicy::SamePatch, BuildPolicy::Implicit)?;
+        let upper = Range::new(upper_op, upper_target.clone(), PrereleasePolicy::SamePatch, BuildPolicy::Implicit)?;
 
-        // Check if left has prerelease -> OR-expansion
+        // base.py:1337-1341 — prerelease on EITHER side triggers OR-expansion.
+        // The "target" passed to the expansion is the prerelease version itself
+        // base.py:1337-1341 — prerelease on EITHER side triggers OR-expansion.
+        //   * left has prerelease -> GTE fence (`< next_patch`)
+        //   * right has prerelease -> LTE fence (`>= patch=0`)
         if left_has_prerelease {
-            return Self::expand_prerelease_or_hyphen(lower, upper, &left_version);
+            return Self::expand_prerelease_or_hyphen(upper, lower, &left_version, false);
         }
-
+        if right_has_prerelease {
+            return Self::expand_prerelease_or_hyphen(lower, upper, &upper_target, true);
+        }
         Ok(Clause::AllOf(vec![Clause::Range(upper), Clause::Range(lower)]))
     }
 
+    /// Flatten an AllOf into its children; other clauses pass through unchanged.
+    /// Python's `AllOf(*clauses)` uses a frozenset, so it never has nested AllOf.
+    /// This helper prevents `AllOf(AllOf(...))` double-wrapping when a single
+    /// block already returned a compound (e.g. from `~1.2.3` or `1.x`).
+    fn flatten_allof(c: Clause) -> Vec<Clause> {
+        match c {
+            Clause::AllOf(inner) => inner,
+            other => vec![other],
+        }
+    }
+
+    /// Deduplicate clauses while preserving first-occurrence order.  Python's
+    /// AllOf/AnyOf use a frozenset, so duplicates like `*,*` collapse.
+    fn dedup_preserve_order(clauses: Vec<Clause>) -> Vec<Clause> {
+        use std::collections::HashSet;
+        let mut seen: HashSet<Clause> = HashSet::new();
+        let mut out = Vec::new();
+        for c in clauses {
+            if seen.insert(c.clone()) {
+                out.push(c);
+            }
+        }
+        out
+    }
     /// Parse version into (major, minor, patch, prerel, build).
     fn parse_version_basic(s: &str) -> Result<(u64, Option<u64>, Option<u64>, Option<Vec<crate::identifiers::PreReleaseIdent>>, Option<Vec<crate::identifiers::BuildIdent>>), SemverError> {
         let re = npm_spec_block_re();
@@ -272,6 +323,11 @@ impl NpmSpec {
         let minor = minor_str.and_then(Self::component_value);
         let patch = patch_str.and_then(Self::component_value);
 
+        // base.py:1382 — wildcard (`*`/`x`/`X`) is only valid for `=`/`>=`.
+        // Caret/tilde with wildcard (e.g. `^*`, `~*`) must be rejected.
+        if major.is_none() && op_str != "=" && op_str != "" && op_str != ">=" {
+            return Err(SemverError::invalid_spec(&format!("Invalid expression '{}'", block)));
+        }
         // base.py:1398 — wildcards are incompatible with prerelease/build.
         if (major.is_none() || minor.is_none() || patch.is_none())
             && (prerel_str.is_some() || build_str.is_some())
@@ -342,15 +398,15 @@ impl NpmSpec {
                     Operator::Gte,
                     Version::from_parts(major.unwrap(), 0, 0, None, None),
                     Operator::Lt,
-                    Version::from_parts(major.unwrap() + 1, 0, 0, None, None),
+                    Version::from_parts(major.unwrap().saturating_add(1), 0, 0, None, None),
                 )?,
                 Operator::Gt => Self::simple_range(
                     Operator::Gte,
-                    Version::from_parts(major.unwrap() + 1, 0, 0, None, None),
+                    Version::from_parts(major.unwrap().saturating_add(1), 0, 0, None, None),
                 )?,
                 Operator::Lte => Self::simple_range(
                     Operator::Lt,
-                    Version::from_parts(major.unwrap() + 1, 0, 0, None, None),
+                    Version::from_parts(major.unwrap().saturating_add(1), 0, 0, None, None),
                 )?,
                 Operator::Gte => Self::simple_range(Operator::Gte, target.clone())?,
                 Operator::Lt => Self::simple_range(Operator::Lt, target.clone())?,
@@ -366,15 +422,15 @@ impl NpmSpec {
                     Operator::Gte,
                     Version::from_parts(major.unwrap(), minor.unwrap(), 0, None, None),
                     Operator::Lt,
-                    Version::from_parts(major.unwrap(), minor.unwrap() + 1, 0, None, None),
+                    Version::from_parts(major.unwrap(), minor.unwrap().saturating_add(1), 0, None, None),
                 )?,
                 Operator::Gt => Self::simple_range(
                     Operator::Gte,
-                    Version::from_parts(major.unwrap(), minor.unwrap() + 1, 0, None, None),
+                    Version::from_parts(major.unwrap(), minor.unwrap().saturating_add(1), 0, None, None),
                 )?,
                 Operator::Lte => Self::simple_range(
                     Operator::Lt,
-                    Version::from_parts(major.unwrap(), minor.unwrap() + 1, 0, None, None),
+                    Version::from_parts(major.unwrap(), minor.unwrap().saturating_add(1), 0, None, None),
                 )?,
                 Operator::Gte => Self::simple_range(Operator::Gte, target.clone())?,
                 Operator::Lt => Self::simple_range(Operator::Lt, target.clone())?,
@@ -548,24 +604,32 @@ impl NpmSpec {
         Ok(Clause::AnyOf(vec![prerel_branch, non_prerel_branch]))
     }
 
-    /// Expand prerelease OR-tree for hyphen ranges.
-    fn expand_prerelease_or_hyphen(lower: Range, upper: Range, target: &Version) -> Result<Clause, SemverError> {
-        // Prerelease branch: fence + lower with prerelease target
-        let fence_target = Version::from_parts(
-            target.major,
-            target.minor.unwrap_or(0),
-            target.patch.unwrap_or(0) + 1,
-            None,
-            None,
-        );
-        let fence = Range::new(Operator::Lt, fence_target, PrereleasePolicy::Always, BuildPolicy::Implicit)?;
-        let prerel_branch = Clause::AllOf(vec![Clause::Range(fence), Clause::Range(lower)]);
-
-        // Non-prerelease branch: upper + lower with truncated target
-        let truncated = target.truncate_to_patch();
-        let non_prerel_lower = Range::new(Operator::Gte, truncated, PrereleasePolicy::SamePatch, BuildPolicy::Implicit)?;
-        let non_prerel_branch = Clause::AllOf(vec![Clause::Range(upper), Clause::Range(non_prerel_lower)]);
-
+    /// `other_range` is the clause without prerelease, `prerel_range` is the
+    /// clause with a prerelease target, and `is_upper_bound` distinguishes
+    /// the two fence directions:
+    ///   * GTE target (lower bound) -> fence = `< major.minor.(patch+1)`
+    ///   * LTE target (upper bound) -> fence = `>= major.minor.0`
+    fn expand_prerelease_or_hyphen(
+        other_range: Range,
+        prerel_range: Range,
+        target: &Version,
+        is_upper_bound: bool,
+    ) -> Result<Clause, SemverError> {
+        let truncated_target = target.truncate_to_patch();
+        let truncated = if is_upper_bound {
+            Range::new(Operator::Lte, truncated_target, PrereleasePolicy::SamePatch, BuildPolicy::Implicit)?
+        } else {
+            Range::new(Operator::Gte, truncated_target, PrereleasePolicy::SamePatch, BuildPolicy::Implicit)?
+        };
+        let fence = if is_upper_bound {
+            let fence_target = Version::from_parts(target.major, target.minor.unwrap_or(0), 0, None, None);
+            Range::new(Operator::Gte, fence_target, PrereleasePolicy::Always, BuildPolicy::Implicit)?
+        } else {
+            let fence_target = Version::from_parts(target.major, target.minor.unwrap_or(0), target.patch.unwrap_or(0) + 1, None, None);
+            Range::new(Operator::Lt, fence_target, PrereleasePolicy::Always, BuildPolicy::Implicit)?
+        };
+        let prerel_branch = Clause::AllOf(vec![Clause::Range(fence), Clause::Range(prerel_range)]);
+        let non_prerel_branch = Clause::AllOf(vec![Clause::Range(other_range), Clause::Range(truncated)]);
         Ok(Clause::AnyOf(vec![prerel_branch, non_prerel_branch]))
     }
 

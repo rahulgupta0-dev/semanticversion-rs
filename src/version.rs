@@ -328,7 +328,7 @@ impl Version {
         if !prerelease.is_empty() && minor == 0 && patch == 0 {
             Self::from_parts(self.major, 0, 0, None, None)
         } else {
-            Self::from_parts(self.major + 1, 0, 0, None, None)
+            Self::from_parts(self.major.saturating_add(1), 0, 0, None, None)
         }
     }
 
@@ -340,7 +340,7 @@ impl Version {
         if !prerelease.is_empty() && patch == 0 {
             Self::from_parts(self.major, minor, 0, None, None)
         } else {
-            Self::from_parts(self.major, minor + 1, 0, None, None)
+            Self::from_parts(self.major, minor.saturating_add(1), 0, None, None)
         }
     }
 
@@ -352,7 +352,7 @@ impl Version {
         if !prerelease.is_empty() {
             Self::from_parts(self.major, minor, patch, None, None)
         } else {
-            Self::from_parts(self.major, minor, patch + 1, None, None)
+            Self::from_parts(self.major, minor, patch.saturating_add(1), None, None)
         }
     }
 
