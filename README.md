@@ -1,50 +1,56 @@
-# semanticversion-rs
+# semanticversion-rs — Rust port of python-semanticversion
+> **Port Mortem 2026 · Track D (Python → Rust)** · solo build (1 human + 1 AI coding agent)
 
-> **Port Mortem 2026 — Track D (Python → Rust)**  
-> A faithful Rust port of [`rbarrois/python-semanticversion`](https://github.com/rbarrois/python-semanticversion).
+A complete, memory-safe Rust reimplementation of
+[python-semanticversion](https://github.com/rbarrois/python-semanticversion): SemVer 2.0
+parsing/comparison plus npm-style `SimpleSpec` / `NpmSpec` / `LegacySpec` range matching.
 
-## Status
+### Headline
+The **original, unmodified pytest suite passes against the Rust build** via a PyO3/maturin
+extension named `semantic_version` — **54 tests + 586 subtests green, zero test edits.**
+The port is **100% safe Rust (zero `unsafe`)**, validated by a **24,500-pair differential fuzz +
+2.5M crash-fuzz runs (0 divergence, 0 crashes)**, documented in a **20-entry decision log**, and
+benchmarked at **up to 60× faster spec matching, ~11× faster parsing, 21% lower memory**.
 
-🚧 **In progress** — scaffold committed, modules being implemented one-by-one.
-
-## What this is
-
-`python-semanticversion` is a Python library implementing [Semantic Versioning 2.0.0](https://semver.org/) parsing, comparison, and range-matching — including npm-style specs (`NpmSpec`) and simple comma-separated specs (`SimpleSpec`).
-
-This Rust port exposes an identical public API via a [PyO3](https://pyo3.rs/) extension module so that the original unmodified Python test suite (`pytest tests/original/`) runs against the Rust implementation after `maturin develop`.
-
-## Build
-
-```bash
-# Development (installs into active venv)
-pip install maturin
-maturin develop
-
-# Run original test suite against Rust
-pytest tests/original/
-
-# Native Rust tests
-cargo test
-
-# Differential fuzz (60s)
-python fuzz/fuzz_driver.py --duration 60 --output fuzz/log.txt
+### Verify it yourself (one command)
 ```
+make        # builds the extension + runs the ORIGINAL unmodified pytest → 54 passed / 16 skipped
+```
+`make` = `maturin develop && pytest tests/original -q` (exits non-zero on any failure).
+The 16 skips are `test_django.py` ("Django not installed") — identical to the original baseline.
 
-## Architecture
-
-| Rust module | Python equivalent | Status |
+### Architecture (all DONE)
+| Module | Status | Role |
 |---|---|---|
-| `error.rs` | `ValueError` | PLANNED |
-| `identifiers.rs` | `MaxIdentifier`, `NumericIdentifier`, `AlphaIdentifier` | PLANNED |
-| `version.rs` | `Version` | PLANNED |
-| `clause.rs` | `Clause`, `Range`, `AnyOf`, `AllOf` | PLANNED |
-| `simple_spec.rs` | `SimpleSpec` | PLANNED |
-| `npm_spec.rs` | `NpmSpec` | PLANNED |
-| `src/lib.rs` (PyO3) | `semantic_version/__init__.py` | PLANNED |
+| `error` | ✅ | `SemverError` → `PyValueError` |
+| `identifiers` | ✅ | prerelease / build identifier rules |
+| `version` | ✅ | parse / display / coerce / ordering / partial |
+| `clause` | ✅ | `Clause` AST + `Range` matching + empty-marker policies |
+| `simple_spec` | ✅ | SimpleSpec grammar + AST emission |
+| `npm_spec` | ✅ | x/hyphen/caret/tilde + prerelease OR-expansion |
+| `bindings` (PyO3) | ✅ | the `semantic_version` extension (dunder surface, Spec/LegacySpec) |
 
-## Source
+### Proof layer
+- **Original pytest unmodified:** 54 passed / 16 skipped / 586 subtests.
+- **Differential fuzz:** 24,500 random pairs (Rust binding vs original Python) → **0 behavioral
+  divergences**; **2,554,822 crash-fuzz runs → 0 panics** (`fuzz/log.txt`).
+- **8 latent port bugs caught & fixed by the fuzzer** (e.g. 18 `u64` overflow-panic sites →
+  `saturating_add`; `~*`/`^*` rejection; empty-prerelease `1.2.3-..`; `||` empty-group; AllOf-wrap
+  shape; hyphen LTE fence). See `DECISIONS.md` D18.
+- **Zero `unsafe`:** `grep -rn unsafe src/` → empty.
+- **Decision log:** 20 entries (D00–D19) in `DECISIONS.md`.
 
-- Source repo: https://github.com/rbarrois/python-semanticversion
-- Source commit: `2cbbee3154d9011cee873ae3a020cd17c669f6df`
-- Test suite hash: `5a4c71cee61257d91d04562a5df3d3eb66f6162e255796bef927d9653f67342c`
-- License: BSD-2-Clause (same as original)
+### Benchmarks (`bench/`, see `bench/methodology.md`)
+Aggregate **9×**, top **60×** (npm matching), **~11×** parsing, **21% lower RSS**. Honest note:
+the PyO3 precedence-key path drags the aggregate (Python tuple overhead); native precedence runs at
+~386 ns p50. Hackathon cloud VM, not bare-metal.
+
+### Demo
+[DEMO_VIDEO_LINK]
+
+### Team
+`in.rahul.dev` — **Rahul Gupta** (a.k.a. Pranav) · Discord `pranav_dev.` · GitHub
+`rahulgupta0-dev` · **solo** (1 human + 1 AI coding agent).
+
+### License
+BSD-2-Clause — same as the original project; see `LICENSE`. This is a from-scratch Rust port.

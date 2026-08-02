@@ -1,3 +1,9 @@
+# =====================================================================
+# AUTHORITATIVE fuzz log — the final clean run. PART A: 24,500 random
+# Rust-vs-Python pairs (0 hard divergences). PART B: 2,554,822 random
+# byte inputs (0 panics). Intermediates moved to fuzz/_intermediate/.
+# =====================================================================
+
 === DIFFERENTIAL FUZZ (PART A) ===
 === DIFFERENTIAL FUZZ ===
 seed=0 pairs=500 div=0 soft=36 elapsed=0.0s

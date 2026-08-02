@@ -1,3 +1,4 @@
+# Build artefacts
 /target
 *.egg-info/
 __pycache__/
@@ -6,7 +7,21 @@ __pycache__/
 .venv/
 dist/
 build/
-fuzz/log.txt
-fuzz/divergences.txt
 *.so
 *.dylib
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Fuzz artefacts (the canonical log is force-added via `git add -f`)
+fuzz/target/
+fuzz/artifacts/
+fuzz/corpus/
+fuzz/_intermediate/
+fuzz/log.partA.txt
+fuzz/log.partB.txt
+fuzz/differential/log.txt
+fuzz/differential/log_partA_v2.txt
+fuzz/differential/divergences.txt
