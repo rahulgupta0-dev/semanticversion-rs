@@ -50,7 +50,7 @@ the PyO3 precedence-key path drags the aggregate (Python tuple overhead); native
 
 ### Team
 `in.rahul.dev` — **Rahul Gupta** (a.k.a. Pranav) · Discord `pranav_dev.` · GitHub
-`rahulgupta0-dev` · **solo** (1 human + 1 AI coding agent).
+`rahulgupta0-dev` · **solo**.
 
 ### License
 BSD-2-Clause — same as the original project; see `LICENSE`. This is a from-scratch Rust port.
