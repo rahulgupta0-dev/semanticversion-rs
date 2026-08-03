@@ -46,7 +46,7 @@ the PyO3 precedence-key path drags the aggregate (Python tuple overhead); native
 ~386 ns p50. Hackathon cloud VM, not bare-metal.
 
 ### Demo
-[DEMO_VIDEO_LINK]
+[![Demo Video](https://img.shields.io/badge/▶_Demo-Google%20Drive-4285F9?style=for-the-badge&logo=google-drive)](https://drive.google.com/file/d/1cK8otmY8cCQ7QHl45r-EHrqiKHHUsTuJ/view?usp=drivesdk)
 
 ### Team
 `in.rahul.dev` — **Rahul Gupta** (a.k.a. Pranav) · Discord `pranav_dev.` · GitHub
