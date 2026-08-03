@@ -25,3 +25,6 @@ fuzz/log.partB.txt
 fuzz/differential/log.txt
 fuzz/differential/log_partA_v2.txt
 fuzz/differential/divergences.txt
+
+# Demo build script + generated mp4 + frames — kept local, not tracked
+demo/
