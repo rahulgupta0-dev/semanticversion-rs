@@ -1,5 +1,5 @@
 # semanticversion-rs — Rust port of python-semanticversion
-> **Port Mortem 2026 · Track D (Python → Rust)** · solo build (1 human + 1 AI coding agent)
+> **Port Mortem 2026 · Track D (Python → Rust)** · solo build 
 
 A complete, memory-safe Rust reimplementation of
 [python-semanticversion](https://github.com/rbarrois/python-semanticversion): SemVer 2.0
